@@ -1,0 +1,924 @@
+language: Pyret
+
+import reactors as R
+import image as I
+
+
+data PlatformLevel:
+  | first
+  | second
+  | third
+end 
+
+data GameStatus:
+  | playing
+  | game-over
+end 
+
+type Platform = {
+  x :: Number,
+  y :: Number,
+  dx :: Number,
+  dy :: Number, 
+}
+
+
+type Egg = {
+  x :: Number,
+  y :: Number,
+  dx :: Number,
+  dy :: Number,
+  ay :: Number,
+  is-airborne :: Boolean, 
+}
+
+type State = {
+  game-status :: GameStatus,
+  egg :: Egg,
+  top-platform :: Platform,
+  middle-platform :: Platform,
+  bottom-platform :: Platform,
+  current-platform :: PlatformLevel,
+  other-platforms :: List<Platform>,
+  score :: Number, 
+  lives :: Number, 
+}
+
+### CONSTANTS ###
+FPS = 60
+
+SCREEN-WIDTH = 300
+SCREEN-HEIGHT = 500
+
+EGG-RADIUS = 20
+EGG-COLOR-NORMAL = 'beige'
+EGG-COLOR-HIT = 'red'
+EGG-JUMP-HEIGHT = -14
+
+PLATFORM-WIDTH = 60
+PLATFORM-COLOR = 'brown'
+PLATFORM-HEIGHT = 10
+PLATFORM-DY = 5
+
+Egg = { 
+  x: SCREEN-WIDTH / 2, 
+  y: 400, 
+  dx: 1,
+  dy: 0,
+  ay: 0,
+  is-airborne: false,
+}
+
+Top-Platform = {
+  x: 190,
+  y: 133, #128,
+  dx: -8,
+  dy: 0,
+}
+
+
+Mid-Platform = {
+  x: 75,
+  y: 266, #256,
+  dx: 9,
+  dy: 0,
+}
+
+Bottom-Platform = {
+  x: SCREEN-WIDTH / 2,
+  y: 399, #384,
+  dx: -7,
+  dy: 0,
+}
+
+INITIAL-STATE ={ 
+  game-status: playing,
+  egg: Egg,
+  top-platform: Top-Platform,
+  middle-platform: Mid-Platform,
+  bottom-platform: Bottom-Platform,
+  current-platform: third,
+  other-platforms: [list: ],
+  score: 0,
+  lives: 12,
+}
+
+### DRAWING ###
+
+fun draw-egg(state :: State, img :: Image) -> Image:
+  egg = circle(EGG-RADIUS ,"solid", 'beige')
+  I.place-image(egg, state.egg.x, state.egg.y, img)
+end
+
+fun draw-first-platform(state :: State, img :: Image) -> Image: 
+  platform = state.top-platform
+  platform-img = rectangle(PLATFORM-WIDTH,PLATFORM-HEIGHT,"solid",PLATFORM-COLOR)
+  place-image-align(platform-img,platform.x,platform.y ,"center","center",img)
+end
+
+fun draw-second-platform(state :: State, img :: Image) -> Image: 
+  platform = state.middle-platform
+  platform-img = rectangle(PLATFORM-WIDTH,PLATFORM-HEIGHT,"solid",PLATFORM-COLOR)
+  place-image-align(platform-img,platform.x,platform.y ,"center","center",img)
+end
+
+fun draw-third-platform(state :: State, img :: Image) -> Image: 
+  platform = state.bottom-platform
+  platform-img = rectangle(PLATFORM-WIDTH,PLATFORM-HEIGHT,"solid",PLATFORM-COLOR)
+  place-image-align(platform-img,platform.x,platform.y  ,"center","center",img)
+end
+
+fun draw-other-platforms(state :: State, img :: Image) -> Image: 
+  platform = state.other-platforms
+
+  fun draw-platform(plat :: Platform, image :: Image) -> Image: 
+    platform-img = rectangle(PLATFORM-WIDTH,PLATFORM-HEIGHT,"solid",PLATFORM-COLOR)
+    place-image-align(platform-img,plat.x,plat.y  ,"center","center",image)
+  end
+
+  platform.foldr(draw-platform(_, _), img)
+end
+
+fun draw-score(state :: State, img :: Image) -> Image:
+  text-img = text(num-to-string(state.score), 24, "black")
+  I.place-image(text-img, SCREEN-WIDTH / 2, SCREEN-HEIGHT / 6, img)
+end
+
+fun draw-lives(state :: State, img :: Image) -> Image:
+  text-img = text("Lives:" + " " + num-to-string(state.lives), 20, "black")
+  I.put-image(text-img, 250,480, img)
+end
+
+fun draw-game-over(state :: State, img :: Image) -> Image:
+  cases (GameStatus) state.game-status:
+    | playing => img
+    | transitioning => img
+    | game-over =>
+      text-img = text("GAME OVER", 48, "red")
+      I.place-image(text-img, SCREEN-WIDTH / 2, SCREEN-HEIGHT / 2, img)
+  end
+end
+
+### MAIN - DRAWING ###
+
+fun draw-handler(state :: State) -> Image:
+  canvas = empty-color-scene(SCREEN-WIDTH, SCREEN-HEIGHT, "light-blue")
+
+  canvas
+    ^ draw-egg(state, _)
+    ^ draw-first-platform(state, _)
+    ^ draw-second-platform(state, _)
+    ^ draw-third-platform(state, _)
+    ^ draw-other-platforms(state, _)
+    ^ draw-score(state,_)
+    ^ draw-lives(state,_)
+    ^ draw-game-over(state,_)
+end
+
+### KEYBOARD ###
+
+fun key-handler(state :: State, key :: String) -> State:
+  eggy = state.egg
+  bottom = state.bottom-platform
+  middle = state.middle-platform
+  top = state.top-platform
+  others = state.other-platforms
+
+  if key == ' ':
+    cases (GameStatus) state.game-status:
+      | playing => 
+        egg-bottom = eggy.y + EGG-RADIUS
+        top-bottom = bottom.y - (PLATFORM-HEIGHT / 2)
+        top-middle = middle.y - (PLATFORM-HEIGHT / 2)
+        top-top = top.y - (PLATFORM-HEIGHT / 2)
+
+        if (((egg-bottom == top-bottom) or 
+              (egg-bottom == top-middle) or 
+              (egg-bottom == top-top)) and
+            (others == empty)):
+
+          state.{egg: 
+              {x: eggy.x,
+                y: eggy.y,
+                dx: 0,
+                dy: EGG-JUMP-HEIGHT,
+                ay: 0.5,
+              is-airborne:true}}
+        else:
+          state.{egg: 
+              {x: eggy.x,
+                y: eggy.y,
+                dx: 0,
+                dy: 0,
+                ay: 1,
+              is-airborne:true}}
+        end
+
+      | game-over => INITIAL-STATE
+    end
+  else:
+    state
+  end
+end
+
+
+
+### TICKS ###
+
+fun update-egg-at-rest(state :: State) -> State:
+  eggy = state.egg
+  cur-level =  state.current-platform
+  bottom = state.bottom-platform
+  middle = state.middle-platform
+  top = state.top-platform
+
+  if eggy.is-airborne == false:
+    cases (PlatformLevel) cur-level:
+      | third => 
+        fun update-x-bottom(stat :: State) -> State:
+
+          platform-side-bottom = bottom.x + bottom.dx
+
+          new-platformy = bottom.x + (0 - bottom.dx)
+          new-platformi = bottom.x + (0 + bottom.dx)
+
+          if (platform-side-bottom > ((SCREEN-WIDTH - 30))) or (platform-side-bottom < 30):
+            stat.{egg: 
+                {x: new-platformy, 
+                  y: (bottom.y - (EGG-RADIUS + (PLATFORM-HEIGHT / 2))), 
+                  dx: eggy.dx,
+                  dy: 0, 
+                  ay: 0,
+                is-airborne:false}}
+
+          else:
+            stat.{egg: 
+                {x: new-platformi, 
+                  y: (bottom.y - (EGG-RADIUS + (PLATFORM-HEIGHT / 2))), 
+                  dx: eggy.dx,
+                  dy: 0, 
+                  ay: 0,
+                is-airborne:false}}
+          end
+        end 
+        update-x-bottom(state)
+
+      | second => 
+        fun update-x-middle(stat :: State) -> State:
+
+          platform-side-middle = middle.x + middle.dx
+
+          new-platformy = middle.x + (0 - middle.dx)
+          new-platformi = middle.x + (0 + middle.dx)
+
+          if (platform-side-middle > ((SCREEN-WIDTH - 30))) or (platform-side-middle < 30):
+            stat.{egg: 
+                {x: new-platformy, 
+                  y: (middle.y - (EGG-RADIUS + (PLATFORM-HEIGHT / 2))), 
+                  dx: eggy.dx,
+                  dy: 0, 
+                  ay: 0,
+                is-airborne:false}}
+
+          else:
+            stat.{egg: 
+                {x: new-platformi, 
+                  y: (middle.y - (EGG-RADIUS + (PLATFORM-HEIGHT / 2))), 
+                  dx: eggy.dx,
+                  dy: 0, 
+                  ay: 0,
+                is-airborne:false}}
+          end
+        end 
+        update-x-middle(state)
+
+      | first => 
+        fun update-x-top(stat :: State) -> State:
+
+          platform-side-top = top.x + top.dx
+
+          new-platformy = top.x + (0 - top.dx)
+          new-platformi = top.x + (0 + top.dx)
+
+          if (platform-side-top > ((SCREEN-WIDTH - 30))) or (platform-side-top < 30):
+            stat.{egg: 
+                {x: new-platformy, 
+                  y: (top.y - (EGG-RADIUS + (PLATFORM-HEIGHT / 2))), 
+                  dx: eggy.dx,
+                  dy: 0, 
+                  ay: 0,
+                is-airborne:false}}
+
+          else:
+            stat.{egg: 
+                {x: new-platformi, 
+                  y: (top.y - (EGG-RADIUS + (PLATFORM-HEIGHT / 2))), 
+                  dx: eggy.dx,
+                  dy: 0, 
+                  ay: 0,
+                is-airborne:false}}
+          end
+        end 
+        update-x-top(state)
+    end
+  else:
+    state
+  end
+end
+
+fun update-egg-y-vel(state :: State) -> State:
+  eggy = state.egg
+  new-eggy = eggy.dy + eggy.ay
+  state.{egg: 
+      {x: eggy.x, 
+        y: eggy.y, 
+        dx: eggy.dx, 
+        dy: new-eggy, 
+        ay: eggy.ay, 
+      is-airborne:true}}
+
+end
+
+fun update-egg-y-coor(state :: State) -> State:
+  eggy = state.egg
+  new-eggy = eggy.y + eggy.dy
+  state.{egg: 
+      {x: eggy.x, 
+        y: new-eggy, 
+        dx: eggy.dx,
+        dy: eggy.dy , 
+        ay: eggy.ay,
+      is-airborne:true}}
+end
+
+fun update-egg-x-coor(state :: State) -> State:
+  eggy = state.egg
+  cur-level =  state.current-platform
+  bottom = state.bottom-platform
+  middle = state.middle-platform
+  top = state.top-platform
+
+  cases (PlatformLevel) cur-level:
+    | third => 
+      fun update-x-bottom(stat :: State) -> State:
+
+        platform-side-bottom = bottom.x + bottom.dx
+
+        new-platformy = bottom.x + (0 - bottom.dx)
+        new-platformi = bottom.x + (0 + bottom.dx)
+
+        if (platform-side-bottom > ((SCREEN-WIDTH - 30))) or (platform-side-bottom < 30):
+          stat.{egg: 
+              {x: new-platformy, 
+                y: eggy.y, 
+                dx: eggy.dx,
+                dy: eggy.dy , 
+                ay: eggy.ay,
+              is-airborne:true}}
+
+        else:
+          stat.{egg: 
+              {x: new-platformi, 
+                y: eggy.y, 
+                dx: eggy.dx,
+                dy: eggy.dy , 
+                ay: eggy.ay,
+              is-airborne:true}}
+        end
+      end 
+      update-x-bottom(state)
+
+    | second =>
+      fun update-x-middle(stat :: State) -> State:
+
+        platform-side-middle = middle.x + middle.dx
+
+        new-platformy = middle.x + (0 - middle.dx)
+        new-platformi = middle.x + (0 + middle.dx)
+
+        if (platform-side-middle > ((SCREEN-WIDTH - 30))) or (platform-side-middle < 30):
+          stat.{egg: 
+              {x: new-platformy, 
+                y: eggy.y, 
+                dx: eggy.dx,
+                dy: eggy.dy , 
+                ay: eggy.ay,
+              is-airborne:true}}
+
+        else:
+          stat.{egg: 
+              {x: new-platformi, 
+                y: eggy.y, 
+                dx: eggy.dx,
+                dy: eggy.dy , 
+                ay: eggy.ay,
+              is-airborne:true}}
+        end
+      end 
+      update-x-middle(state)
+
+    | first => 
+      fun update-x-top(stat :: State) -> State:
+
+        platform-side-top = top.x + top.dx
+
+        new-platformy = top.x + (0 - top.dx)
+        new-platformi = top.x + (0 + top.dx)
+
+        if (platform-side-top > ((SCREEN-WIDTH - 30))) or (   platform-side-top < 30):
+          stat.{egg: 
+              {x: new-platformy, 
+                y: eggy.y, 
+                dx: eggy.dx,
+                dy: eggy.dy , 
+                ay: eggy.ay,
+              is-airborne:true}}
+
+        else:
+          stat.{egg: 
+              {x: new-platformi, 
+                y: eggy.y, 
+                dx: eggy.dx,
+                dy: eggy.dy , 
+                ay: eggy.ay,
+              is-airborne:true}}
+        end
+      end 
+      update-x-top(state)
+  end
+end
+
+
+fun update-top-plat-x(state :: State) -> State:
+
+  top = state.top-platform
+  platform-side-top = top.x + top.dx
+
+  new-platformy = top.x + (0 - top.dx)
+  new-platformi = top.x + (0 + top.dx)
+
+  if (platform-side-top > ((SCREEN-WIDTH - 30) )) or (platform-side-top < 30):
+    state.{top-platform:
+        {x: new-platformy,
+          y: top.y,
+          dx: top.dx * -1,
+        dy: top.dy}}
+
+  else:
+    state.{top-platform:
+        {x: new-platformi,
+          y: top.y,
+          dx: top.dx * 1,
+        dy: top.dy}}
+  end
+end 
+
+fun update-mid-plat-x(state :: State) -> State:
+
+  middle = state.middle-platform
+  platform-side-middle = middle.x + middle.dx
+
+  new-platformy = middle.x + (0 - middle.dx)
+  new-platformi = middle.x + (0 + middle.dx)
+
+  if (platform-side-middle > ((SCREEN-WIDTH - 30))) or (platform-side-middle < 30):
+    state.{middle-platform: 
+        {x: new-platformy,
+          y: middle.y,
+          dx: middle.dx * -1,
+        dy: middle.dy}}
+
+  else:
+    state.{middle-platform: 
+        {x: new-platformi,
+          y:middle.y,
+          dx: middle.dx * 1,
+        dy: middle.dy}}
+  end
+end 
+
+fun update-bot-plat-x(state :: State) -> State:
+
+  bottom = state.bottom-platform
+  platform-side-bottom = bottom.x + bottom.dx
+
+  new-platformy = bottom.x + (0 - bottom.dx)
+  new-platformi = bottom.x + (0 + bottom.dx)
+
+  if (platform-side-bottom > ((SCREEN-WIDTH - 30))) or (platform-side-bottom < 30):
+    state.{bottom-platform:
+        {x: new-platformy,
+          y: bottom.y,
+          dx: bottom.dx * -1,
+        dy:bottom.dy}}
+
+  else:
+    state.{bottom-platform: 
+        {x: new-platformi,
+          y: bottom.y,
+          dx: bottom.dx * 1,
+        dy: bottom.dy}}
+  end
+end 
+
+fun update-collision(state :: State) -> State:
+  eggy = state.egg
+  egg-bottom = eggy.y - EGG-RADIUS
+
+  cur-level =  state.current-platform
+  bottom = state.bottom-platform
+  middle = state.middle-platform
+  top = state.top-platform
+
+  half-platform-width = PLATFORM-WIDTH / 2
+  half-platform-height = PLATFORM-HEIGHT / 2
+
+  if (egg-bottom >= SCREEN-HEIGHT) == true:
+    state.{egg: 
+        {x: eggy.x, 
+          y: eggy.y, 
+          dx: eggy.dx,
+          dy: eggy.dy, 
+          ay: eggy.ay,
+        is-airborne: false}}
+  else:
+
+
+    if eggy.dy >= 0:
+      cases (PlatformLevel) cur-level:
+        | third => 
+          fun is-hitting-middle-platform(platform-m :: Platform) -> Boolean:
+
+
+            circ-dist-x = num-abs(eggy.x - platform-m.x)
+            circ-dist-y = num-abs(eggy.y - platform-m.y)
+
+            if circ-dist-x > (half-platform-width + EGG-RADIUS):
+              false
+            else if circ-dist-y > (half-platform-height + EGG-RADIUS):
+              false
+            else if circ-dist-x <= half-platform-width:
+              true
+            else if circ-dist-y <= half-platform-height:
+              true
+            else:
+              cor-dist-sqr = num-sqr(circ-dist-x - half-platform-width) + num-sqr(circ-dist-y - half-platform-height)
+
+              cor-dist-sqr <= num-sqr(EGG-RADIUS)
+            end
+          end
+
+          is-hitting-middle = is-hitting-middle-platform(middle)
+
+          if is-hitting-middle == true:
+            state.{egg: 
+                {x: eggy.x, 
+                  y: eggy.y, 
+                  dx: eggy.dx,
+                  dy: eggy.dy, 
+                  ay: eggy.ay,
+                is-airborne:false}}.{current-platform: second}
+
+
+          else:
+            state
+          end
+
+        | second => 
+          fun is-hitting-top-platform(platform-t :: Platform) -> Boolean:
+            circ-dist-x = num-abs(eggy.x - platform-t.x)
+            circ-dist-y = num-abs(eggy.y - platform-t.y )
+
+            if circ-dist-x > (half-platform-width + EGG-RADIUS):
+              false
+            else if circ-dist-y > (half-platform-height + EGG-RADIUS):
+              false
+            else if circ-dist-x <= half-platform-width:
+              true
+            else if circ-dist-y <= half-platform-height:
+              true
+            else:
+              cor-dist-sqr = num-sqr(circ-dist-x - half-platform-width) + num-sqr(circ-dist-y - half-platform-height)
+
+              cor-dist-sqr <= num-sqr(EGG-RADIUS)
+            end
+          end
+
+          is-hitting-top = is-hitting-top-platform(top)
+
+          if is-hitting-top == true:
+            state.{current-platform: first}
+          else:
+            state
+          end
+
+        | first => 
+          block:
+            state.{egg: 
+                {x: eggy.x, 
+                  y: eggy.y, 
+                  dx: top.dx,
+                  dy: eggy.dy, 
+                  ay: eggy.ay,
+                is-airborne:false}}
+          end
+      end
+    else:
+      state
+    end
+
+  end
+end
+
+fun update-score(state :: State) -> State:
+  eggy = state.egg
+  scorey = state.score
+  bottom = state.bottom-platform
+  middle = state.middle-platform
+  top = state.top-platform
+  
+  egg-bottom = eggy.y + EGG-RADIUS
+  top-bottom = bottom.y - (PLATFORM-HEIGHT / 2)
+  top-middle = middle.y - (PLATFORM-HEIGHT / 2)
+  top-top = top.y - (PLATFORM-HEIGHT / 2)
+  
+  if (eggy.is-airborne == false) 
+    and ((egg-bottom <= top-bottom) 
+      or (egg-bottom <= top-middle) 
+      or (egg-bottom <= top-top)):  
+    state.{score: scorey + 1}
+  else:
+    state
+  end
+end
+
+fun update-lives(state :: State) -> State:
+  eggy = state.egg
+  livey = state.lives
+  
+  if (eggy.y > SCREEN-HEIGHT) and (eggy.is-airborne == true):
+    state.{lives: livey - 1}
+  else:
+    state
+  end
+end
+
+fun update-game-over(state :: State) -> State:
+  livey = state.lives
+  
+  if (livey == 0):
+    state.{game-status: game-over}
+  else:
+    state
+  end
+end
+
+### TRANSITIONING ###
+fun stop-egg(state :: State) -> State:
+  cur-level = state.current-platform
+  eggy = state.egg
+  top = state.top-platform
+
+    state.{egg:
+        {x: eggy.x, 
+          y: (top.y - (EGG-RADIUS + (PLATFORM-HEIGHT / 2))), 
+          dx: 0,
+          dy: 0, 
+          ay: 0,
+        is-airborne:false}}
+end
+
+fun stop-bot-plat(state :: State) -> State:
+  cur-level = state.current-platform
+
+  bottom = state.bottom-platform
+ 
+    state.{bottom-platform:
+        {x: bottom.x, 
+          y: bottom.y, 
+          dx: 0,
+        dy: 0}}
+end
+
+fun stop-mid-plat(state :: State) -> State:
+  cur-level = state.current-platform
+
+  middle = state.middle-platform
+
+    state.{middle-platform:
+        {x: middle.x, 
+          y: middle.y, 
+          dx: 0,
+        dy: 0}}
+end
+
+fun stop-top-plat(state :: State) -> State:
+  cur-level = state.current-platform
+
+  top = state.top-platform
+
+    state.{top-platform:
+        {x: top.x, 
+          y: top.y, 
+          dx: 0,
+        dy: 0}}
+end
+
+fun trans-egg-y-vel(state :: State) -> State:
+  eggy = state.egg
+  new-eggy = eggy.dy + PLATFORM-DY
+  state.{egg: 
+      {x: eggy.x, 
+        y: eggy.y, 
+        dx: eggy.dx, 
+        dy: new-eggy, 
+        ay: eggy.ay, 
+      is-airborne:false}}
+
+end
+
+fun trans-egg-y-coor(state :: State) -> State:
+  eggy = state.egg
+  new-eggy = eggy.y + PLATFORM-DY
+  state.{egg: 
+      {x: eggy.x, 
+        y: new-eggy, 
+        dx: eggy.dx,
+        dy: eggy.dy , 
+        ay: eggy.ay,
+      is-airborne:false}}
+end
+
+fun trans-bot-plat(state :: State) -> State:
+  bottom = state.bottom-platform
+
+  state.{bottom-platform: 
+      {x: bottom.x, 
+        y: bottom.y + PLATFORM-DY, 
+        dx: 0, 
+      dy: PLATFORM-DY}}
+end
+
+fun trans-mid-plat(state :: State) -> State:
+  middle = state.middle-platform
+
+  state.{middle-platform: 
+      {x: middle.x, 
+        y: middle.y + PLATFORM-DY, 
+        dx: 0, 
+      dy: PLATFORM-DY}}
+end
+
+fun trans-top-plat(state :: State) -> State:
+  top = state.top-platform
+
+  state.{top-platform: 
+      {x: top.x, 
+        y: top.y + PLATFORM-DY, 
+        dx: 0, 
+      dy: PLATFORM-DY}}
+end
+
+fun top-to-bottom-plat(state :: State) -> State:
+  old-top = state.top-platform
+  same-as-bot = INITIAL-STATE.bottom-platform
+
+  if old-top.y >= 399:
+    state.{top-platform:
+        {x: old-top.x,
+          y: same-as-bot.y,
+          dx: same-as-bot.dx,
+        dy: same-as-bot.dy}}
+  else:
+    state
+  end
+end
+
+fun generate-new-platforms(state :: State) -> State:
+  new-platforms = state.other-platforms
+    .map(lam(platform):
+    platform.{x: platform.x, y: platform.y + PLATFORM-DY, dx: platform.dx, dy: platform.dy} end)
+    .filter(lam(platform): (platform.y <= 266) and (platform.y <= 133) end)
+
+  state.{other-platforms: new-platforms}
+end
+
+fun update-new-platforms(state :: State) -> State:
+  new-platforms = state.other-platforms
+  old-top = state.top-platform
+  
+  fun generate-platforms() -> List<Platform>:
+    same-as-mid = INITIAL-STATE.middle-platform
+    same-as-top = INITIAL-STATE.top-platform
+
+    new-middle = 
+      {x: same-as-mid.x,
+        y: old-top.y - 133,
+        dx: 0,
+        dy: 0}
+
+    new-top = 
+      {x: same-as-top.x,
+        y: new-middle.y - 133, 
+        dx: 0, 
+        dy: 0}
+
+    [list: new-middle, new-top]
+  end
+
+  call-new-platforms = generate-platforms()
+  state.{other-platforms: new-platforms.append(call-new-platforms)}
+end
+
+fun update-new-level(state :: State) -> State:
+  eggy = state.egg
+  scorey = state.score
+  livey = state.lives
+  new-top = state.other-platforms.get(1)
+  new-middle = state.other-platforms.get(0)
+  old-top = state.top-platform
+  
+  if (old-top.y == 399) and (new-middle.y == 266) and (new-top.y == 133):
+    INITIAL-STATE.{bottom-platform: old-top,
+        egg: eggy, score: scorey,
+      lives: livey}
+  else:
+    state
+  end
+end
+
+
+  ### MAIN - TICK ###
+fun tick-handler(state :: State) -> State:
+  cur-level = state.current-platform
+  egg-on-plat = state.egg.is-airborne
+  egg-bottom = state.egg.y + EGG-RADIUS
+  top-top-plat = state.top-platform.y - (PLATFORM-HEIGHT / 2)
+
+  cases (GameStatus) state.game-status:
+    | playing =>
+      if (cur-level == first) and (egg-on-plat == false):
+        state
+          ^ stop-egg(_)
+          ^ stop-bot-plat(_)
+          ^ stop-mid-plat(_)
+          ^ stop-top-plat(_)
+          ^ trans-egg-y-vel(_)
+          ^ trans-egg-y-coor(_)
+          ^ trans-bot-plat(_)
+          ^ trans-mid-plat(_)
+          ^ trans-top-plat(_)
+          ^ top-to-bottom-plat(_)
+          ^ generate-new-platforms(_)
+          ^ update-new-platforms(_)
+          ^ update-new-level(_)
+
+      else:
+        state
+          ^ update-egg-at-rest(_)
+          ^ update-egg-y-vel(_)
+          ^ update-egg-y-coor(_)
+          ^ update-egg-x-coor(_)
+          ^ update-top-plat-x(_)
+          ^ update-mid-plat-x(_)
+          ^ update-bot-plat-x(_)
+          ^ update-collision(_)
+          ^ update-score(_)
+          ^ update-lives(_)
+          ^ update-game-over(_)
+      end
+
+    | game-over => state
+  end
+end
+
+  ###  MAIN  ### 
+  world = reactor:
+    title: 'CS 12 21.2 MP (Simple Egg Toss Clone)',
+    init: INITIAL-STATE,
+    to-draw: draw-handler,
+    seconds-per-tick: 1 / FPS, 
+    on-tick: tick-handler,
+    on-key: key-handler,
+  end
+
+  R.interact(world)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
